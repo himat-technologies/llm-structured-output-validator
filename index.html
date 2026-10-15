@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Structured Output &amp; JSON Schema Validator | HiMat Technologies</title>
+  <meta name="description" content="Validate, debug, auto-repair, and enforce JSON Schema rules on raw completion text from OpenAI, Claude, DeepSeek, and Llama. 100% client-side." />
+
+  <link rel="stylesheet" href="style.css" />
+
+  <!--
+    Third-party CDN libraries (require an internet connection on first load).
+    - ajv7.bundle.min.js   -> window.ajv7   (JSON Schema Draft 7)
+    - ajv2020.bundle.min.js -> window.ajv2020 (JSON Schema Draft 2020-12)
+    These are the only external dependencies. No analytics, no tracking.
+    If they fail to load, schema validation is disabled but the UI still works.
+  -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ajv/8.12.0/ajv7.bundle.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/ajv/8.12.0/ajv2020.bundle.min.js"></script>
+  <script defer src="script.js"></script>
+</head>
+<body>
+  <noscript>
+    <p style="padding:1rem;text-align:center;">This tool requires JavaScript to run. All processing happens locally in your browser.</p>
+  </noscript>
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">HiMat</span>
+        <div class="brand-text">
+          <h1>LLM Structured Output &amp; JSON Schema Validator</h1>
+          <p class="tagline">Validate, auto-repair, and enforce JSON Schema on raw LLM output &mdash; 100% in your browser.</p>
+        </div>
+      </div>
+      <span class="privacy-badge" title="No network transmission of your data">Runs 100% client-side</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+
+    <!-- ===================== PRESETS ===================== -->
+    <section class="panel presets-panel" aria-labelledby="presets-heading">
+      <h2 id="presets-heading">Production Scenario Presets</h2>
+      <p class="hint">Pick a real-world example to test schema validation and JSON auto-repair instantly. Two presets ship with intentionally broken JSON.</p>
+      <div id="presetGrid" class="preset-grid" role="group" aria-label="Preset scenarios"></div>
+      <p id="presetDesc" class="preset-desc">Pick a preset above to load its schema and sample output.</p>
+    </section>
+
+    <!-- ===================== EDITORS ===================== -->
+    <section class="grid" aria-label="Editors">
+      <!-- Schema editor -->
+      <div class="panel panel-schema">
+        <div class="panel-head">
+          <h2 id="schema-heading">1. Target JSON Schema</h2>
+          <label class="inline-field">
+            <span>Version</span>
+            <select id="schemaVersion" aria-label="Schema version">
+              <option value="draft7">Draft 7</option>
+              <option value="draft2020">Draft 2020-12</option>
+            </select>
+          </label>
+        </div>
+        <label class="sr-only" for="schemaInput">JSON Schema</label>
+        <textarea id="schemaInput" spellcheck="false" autocomplete="off"
+          placeholder='Paste a JSON Schema here, or click "Load Sample Schema".'></textarea>
+        <div class="btn-row">
+          <button id="loadSampleSchemaBtn" class="btn">Load Sample Schema</button>
+          <button id="clearSchemaBtn" class="btn btn-ghost">Clear Schema</button>
+        </div>
+      </div>
+
+      <!-- Raw output editor -->
+      <div class="panel panel-output">
+        <div class="panel-head">
+          <h2 id="output-heading">2. Raw LLM Output</h2>
+        </div>
+        <label class="sr-only" for="outputInput">Raw LLM output</label>
+        <textarea id="outputInput" spellcheck="false" autocomplete="off"
+          placeholder='Paste raw output from ChatGPT, Claude, DeepSeek, Llama, etc. Markdown fences, prose and malformed JSON are supported.'></textarea>
+        <div class="btn-row">
+          <button id="validateBtn" class="btn btn-primary">Validate Output</button>
+          <button id="repairBtn" class="btn btn-accent">Auto-Repair JSON</button>
+          <button id="clearInputBtn" class="btn btn-ghost">Clear Input</button>
+          <button id="loadBrokenBtn" class="btn btn-ghost">Load Broken Example</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== RESULTS ===================== -->
+    <section class="panel results" aria-labelledby="results-heading">
+      <h2 id="results-heading" class="sr-only">Results</h2>
+
+      <div class="tabs" role="tablist" aria-label="Results tabs">
+        <button id="tab-diagnostics" class="tab active" role="tab" data-tab="panel-diagnostics" aria-selected="true" aria-controls="panel-diagnostics">Diagnostics</button>
+        <button id="tab-repaired" class="tab" role="tab" data-tab="panel-repaired" aria-selected="false" aria-controls="panel-repaired">Repaired JSON</button>
+        <button id="tab-code" class="tab" role="tab" data-tab="panel-code" aria-selected="false" aria-controls="panel-code">Guardrail Code</button>
+      </div>
+
+      <!-- Diagnostics tab -->
+      <div id="panel-diagnostics" class="tab-panel" role="tabpanel" aria-labelledby="tab-diagnostics">
+        <div id="statusBanner" class="status-banner status-empty">Run &ldquo;Validate Output&rdquo; or &ldquo;Auto-Repair JSON&rdquo; to see results.</div>
+
+        <div class="diag-grid">
+          <div class="diag-card">
+            <h3>JSON Syntax</h3>
+            <p id="syntaxStatus" class="diag-value muted">Not checked</p>
+          </div>
+          <div class="diag-card">
+            <h3>Schema Validation</h3>
+            <p id="schemaStatus" class="diag-value muted">Not checked</p>
+          </div>
+        </div>
+
+        <div id="repairSection" class="diag-block hidden">
+          <h3>Auto-Repairs Applied <span id="repairCount" class="pill">0</span></h3>
+          <ul id="repairList" class="diag-list"></ul>
+        </div>
+
+        <div id="errorSection" class="diag-block hidden">
+          <h3>Errors <span id="errorCount" class="pill pill-error">0</span></h3>
+          <ul id="errorList" class="diag-list diag-list-error"></ul>
+        </div>
+
+        <div id="warnSection" class="diag-block hidden">
+          <h3>Warnings <span id="warningCount" class="pill pill-warn">0</span></h3>
+          <ul id="warningList" class="diag-list diag-list-warn"></ul>
+        </div>
+      </div>
+
+      <!-- Repaired JSON tab -->
+      <div id="panel-repaired" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-repaired">
+        <div class="code-head">
+          <h3>Repaired / Normalized JSON</h3>
+          <div class="btn-row">
+            <button id="copyJsonBtn" class="btn">Copy JSON</button>
+            <button id="downloadJsonBtn" class="btn">Download JSON</button>
+          </div>
+        </div>
+        <pre id="repairedOutput" class="code-block empty-state">No parsed JSON yet. Run &ldquo;Validate Output&rdquo; or &ldquo;Auto-Repair JSON&rdquo;.</pre>
+      </div>
+
+      <!-- Guardrail code tab -->
+      <div id="panel-code" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-code">
+        <p class="hint">Generated examples only. They have <strong>not</strong> been executed or tested. Review them before using in production.</p>
+
+        <div class="code-group">
+          <div class="code-head">
+            <h3>Python (<code>jsonschema</code>)</h3>
+            <button class="btn btn-small" data-copy="codePython">Copy Code</button>
+          </div>
+          <pre id="codePython" class="code-block"></pre>
+        </div>
+
+        <div class="code-group">
+          <div class="code-head">
+            <h3>TypeScript (Zod)</h3>
+            <button class="btn btn-small" data-copy="codeZod">Copy Code</button>
+          </div>
+          <pre id="codeZod" class="code-block"></pre>
+        </div>
+
+        <div class="code-group">
+          <div class="code-head">
+            <h3>LangChain (structured output parsing)</h3>
+            <button class="btn btn-small" data-copy="codeLangChain">Copy Code</button>
+          </div>
+          <pre id="codeLangChain" class="code-block"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PRIVACY NOTE ===================== -->
+    <section class="privacy-note" aria-label="Privacy notice">
+      <h2>Privacy &amp; Security</h2>
+      <ul>
+        <li>Your JSON schema and LLM output never leave this page. Everything is processed locally in your browser.</li>
+        <li>No analytics, tracking, cookies, API keys, login, or backend server are used.</li>
+        <li>Nothing is saved to <code>localStorage</code> or <code>sessionStorage</code>. Closing the tab clears all input.</li>
+        <li>Pasted code is never executed. This tool does not use <code>eval()</code> or the <code>Function</code> constructor.</li>
+        <li>The only external resources are the Ajv validation bundles loaded from cdnjs. They require an internet connection on first load and are separate from the validation logic.</li>
+      </ul>
+    </section>
+  </main>
+
+  <!-- ===================== FOOTER ===================== -->
+  <footer class="site-footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <span class="logo">HiMat</span>
+        <p>HiMat Technologies &mdash; AI-first software development. Build in remote-first from Chennai, shipped worldwide.</p>
+      </div>
+      <nav class="footer-links" aria-label="HiMat links">
+        <a class="fl-demo" href="https://himat.tech/free-tools/llm-structured-output-validator" target="_blank" rel="noopener noreferrer">Live Demo</a>
+        <a href="https://himat.co.in" target="_blank" rel="noopener noreferrer">Website</a>
+        <a href="https://github.com/Himat-developers" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://www.linkedin.com/in/himat-technologies-14b1051b4" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        <a href="https://www.instagram.com/himat_technologies?stkn=djdmcGxweWtwYWI0" target="_blank" rel="noopener noreferrer">Instagram</a>
+        <a href="https://www.facebook.com/people/Himat-technologies/61593829197445/" target="_blank" rel="noopener noreferrer">Facebook</a>
+        <a href="mailto:info@himat.co.in">info@himat.co.in</a>
+        <a href="tel:+919445234023">+91 94452 34023</a>
+      </nav>
+    </div>
+    <div class="wrap footer-bottom">
+      <p>&copy; <span id="year"></span> HiMat Technologies. All rights reserved.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "llm-structured-output-validator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Client-side LLM structured-output and JSON Schema validator with auto-repair. By HiMat Technologies.",
+  "scripts": {
+    "dev": "npx --yes serve . -p 8000",
+    "start": "npx --yes serve . -p 8000"
+  },
+  "license": "MIT"
+}
